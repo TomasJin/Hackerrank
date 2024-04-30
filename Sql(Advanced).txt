@@ -1,0 +1,64 @@
+1. Crypto Market Algorithms Report
+
+
+SELECT
+  c.algorithm AS algorithm,
+  COALESCE(SUM(CASE WHEN EXTRACT(QUARTER FROM t.dt) = 1 THEN t.volume ELSE 0 END), 0) AS transactions_Q1,
+  COALESCE(SUM(CASE WHEN EXTRACT(QUARTER FROM t.dt) = 2 THEN t.volume ELSE 0 END), 0) AS transactions_Q2,
+  COALESCE(SUM(CASE WHEN EXTRACT(QUARTER FROM t.dt) = 3 THEN t.volume ELSE 0 END), 0) AS transactions_Q3,
+  COALESCE(SUM(CASE WHEN EXTRACT(QUARTER FROM t.dt) = 4 THEN t.volume ELSE 0 END), 0) AS transactions_Q4
+FROM coins c
+LEFT JOIN transactions t ON c.code = t.coin_code
+WHERE t.dt >= '2020-01-01' AND t.dt < '2021-01-01'
+GROUP BY c.algorithm
+ORDER BY c.algorithm ASC;
+
+2. Winner ...
+
+SET SESSION group_concat_max_len = 1000000; -- increase max length for group concat
+
+WITH 
+ranked_scores AS (
+    SELECT 
+        event_id,
+        participant_name,
+        score,
+        DENSE_RANK() OVER (
+            PARTITION BY event_id 
+            ORDER BY score DESC
+        ) as ranking
+    FROM (
+        SELECT event_id, participant_name, MAX(score) as score
+        FROM scoretable
+        GROUP BY event_id, participant_name
+    ) t
+)
+SELECT
+    event_id,
+    GROUP_CONCAT(CASE WHEN ranking = 1 THEN participant_name END ORDER BY participant_name) as first,
+    GROUP_CONCAT(CASE WHEN ranking = 2 THEN participant_name END ORDER BY participant_name) as second,
+    GROUP_CONCAT(CASE WHEN ranking = 3 THEN participant_name END ORDER BY participant_name) as third
+FROM ranked_scores
+GROUP BY event_id
+ORDER BY event_id;
+
+3. Weekend Hours Worked
+
+WITH hours_worked as (
+  
+SELECT
+      emp_id,
+  	   CASE 
+       WHEN datepart(minute,TIMESTAMP) >= datepart(minute,lag(TIMESTAMP) OVER(PARTITION BY CAST(TIMESTAMP AS date),emp_id ORDER BY TIMESTAMP)) then datepart(hour,timestamp) - datepart(hour,lag(TIMESTAMP) OVER(PARTITION BY CAST(TIMESTAMP AS date),emp_id ORDER BY TIMESTAMP)) 
+  	   ELSE datepart(hour,timestamp) - datepart(hour,lag(TIMESTAMP) OVER(PARTITION BY CAST(TIMESTAMP AS date),emp_id ORDER BY TIMESTAMP)) - 1
+       END AS hours_worked
+FROM   attendance
+-- only weekends
+WHERE  datepart(weekday,TIMESTAMP) IN(7,1)
+)
+SELECT
+   emp_id,
+      SUM(hours_worked) as hours_worked
+FROM  hours_worked
+GROUP BY emp_id
+ORDER BY hours_worked desc
